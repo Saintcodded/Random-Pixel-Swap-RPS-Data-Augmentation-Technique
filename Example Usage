@@ -1,0 +1,7 @@
+# In a torchvision pipeline
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    #RPS(sf=(0.1, 1.0), p = 1 ),  #  Multi-Value Swap Area Factor (MVSF)
+    RPS(sf=1.0, p=1), #Single-Value Swap Area Factor (SVSF)
+    transforms.Resize((224, 224))
+])
