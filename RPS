@@ -1,0 +1,96 @@
+class RPS(object):
+    def __init__(self, 
+                 sf: Union[float, Tuple[float, float]] = 1.0,
+                 p: float = 1.0):
+
+        self.swap_factor = sf
+        self.augmentation_prob = p
+
+    def __call__(self, x: Union[Image.Image, torch.Tensor]) -> Union[Image.Image, torch.Tensor]:
+        apply_options = [True, False]
+        random.shuffle(apply_options)
+        apply_augmentation = (apply_options[0] if random.random() < self.augmentation_prob 
+                            else apply_options[1])
+        
+        if not apply_augmentation:
+            return x
+        is_tensor = isinstance(x, torch.Tensor)
+        if is_tensor:
+            device, dtype = x.device, x.dtype
+            x_np = x.permute(1, 2, 0).cpu().numpy()  # CxHxW -> HxWxC
+            mode = 'RGB' if x_np.shape[-1] == 3 else 'L'
+            x_pil = Image.fromarray((x_np * 255).astype(np.uint8), mode)
+        else:
+            x_pil = x
+
+        swap_ratio = (random.uniform(*self.swap_factor) 
+                     if isinstance(self.swap_factor, tuple) 
+                     else float(self.swap_factor))
+
+        h, w = x_pil.size[1], x_pil.size[0]  
+        h_half, w_half = h // 2, w // 2
+        u = h // 2  
+
+        def get_points(length):
+            points = list(range(1, length - 1))  
+            points = random.sample(points, 2)   
+            points.sort()                       
+            return [int(p * swap_ratio) for p in points]
+
+        h_points = get_points(h)
+        w_points = [p // 2 for p in h_points] 
+        w1, w2 = w_points[0] + w_half, w_points[1] + w_half
+        
+        d_points = get_points(u)
+        d1, d2 = [p + u for p in d_points]
+
+        def create_transform(base_img, crop_coords, paste_coords):
+            patch1 = base_img.crop(crop_coords[0])
+            patch2 = base_img.crop(crop_coords[1])
+            
+            deleted = base_img.copy()
+            deleted.paste(0, crop_coords[0])  
+            deleted.paste(0, crop_coords[1])
+            deleted.paste(patch1, paste_coords[0])
+            deleted.paste(patch2, paste_coords[1])
+            return deleted
+
+        transforms = {
+            'd': {  
+                'crop': [(d_points[0], d_points[0] + u, d_points[1], d_points[1] + u),
+                        (d1, d_points[0], d2, d_points[1])],
+                'paste': [(d1, d_points[0]), (d_points[0], d_points[0] + u)]
+            },
+            'u': {  
+                'crop': [(d_points[0], d_points[0], d_points[1], d_points[1]),
+                        (d1, d_points[0] + u, d2, d_points[1] + u)],
+                'paste': [(d1, d_points[0] + u), (d_points[0], d_points[0])]
+            },
+            'w': {  
+                'crop': [(h_points[0], w_points[0], h_points[1], w_points[1]),
+                        (h_points[0], w1, h_points[1], w2)],
+                'paste': [(h_points[0], w1), (h_points[0], w_points[0])]
+            },
+            'h': {  
+                'crop': [(w_points[0], h_points[0], w_points[1], h_points[1]),
+                        (w1, h_points[0], w2, h_points[1])],
+                'paste': [(w1, h_points[0]), (w_points[0], h_points[0])]
+            }
+        }
+
+        transform_keys = list(transforms.keys())
+        random.shuffle(transform_keys)
+
+        chosen_key = transform_keys[0]
+        output = create_transform(
+            x_pil,
+            transforms[chosen_key]['crop'],
+            transforms[chosen_key]['paste']
+        )
+
+        if is_tensor:
+            output = torch.from_numpy(
+                np.array(output).astype(np.float32) / 255.0
+            ).permute(2, 0, 1).to(device=device, dtype=dtype)
+
+        return output
