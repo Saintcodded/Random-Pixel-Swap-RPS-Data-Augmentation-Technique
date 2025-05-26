@@ -1,4 +1,4 @@
-class RPS(object):
+class RPS2D(object):
     def __init__(self, 
                  sf: Union[float, Tuple[float, float]] = 1.0,
                  p: float = 1.0):
