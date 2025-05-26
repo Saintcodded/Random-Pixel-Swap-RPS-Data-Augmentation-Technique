@@ -1,0 +1,152 @@
+class RPS3D(object):
+    def __init__(self, 
+                 sf: Union[float, Tuple[float, float]] = 1.0,
+                 p: float = 1.0):
+        self.swap_factor = sf
+        self.augmentation_prob = p
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+ 
+        apply_options = [True, False]
+        random.shuffle(apply_options)
+        apply_augmentation = (apply_options[0] if random.random() < self.augmentation_prob 
+                            else apply_options[1])
+        
+        if not apply_augmentation:
+            return x
+
+        if not isinstance(x, torch.Tensor):
+            raise ValueError("Input must be a torch.Tensor for 3D RPS")
+        if x.ndim != 4:
+            raise ValueError("Input tensor must be 4D (CxDxHxW)")
+
+        device, dtype = x.device, x.dtype
+        x_np = x.permute(1, 2, 3, 0).cpu().numpy()  
+
+        swap_ratio = (random.uniform(*self.swap_factor) 
+                     if isinstance(self.swap_factor, tuple) 
+                     else float(self.swap_factor))
+
+        d, h, w = x_np.shape[0], x_np.shape[1], x_np.shape[2]
+        d_half, h_half, w_half = d // 2, h // 2, w // 2
+        u = h // 2 
+
+        def get_points(length):
+
+            points = list(range(1, length - 1)) 
+            points = random.sample(points, 2)   
+            points.sort()                       
+            return [int(p * swap_ratio) for p in points]
+
+        d_points = get_points(d)
+        h_points = get_points(h)
+        w_points = [p // 2 for p in h_points]  
+        w1, w2 = w_points[0] + w_half, w_points[1] + w_half
+        
+        d_diag_points = get_points(u)
+        d1, d2 = [p + u for p in d_diag_points]
+
+        def create_transform(vol, crop_coords, paste_coords):
+
+            transformed = vol.copy()
+
+            patch1 = transformed[
+                crop_coords[0][0]:crop_coords[0][1],
+                crop_coords[0][2]:crop_coords[0][3],
+                crop_coords[0][4]:crop_coords[0][5]
+            ].copy()
+            
+            patch2 = transformed[
+                crop_coords[1][0]:crop_coords[1][1],
+                crop_coords[1][2]:crop_coords[1][3],
+                crop_coords[1][4]:crop_coords[1][5]
+            ].copy()
+
+            transformed[
+                crop_coords[0][0]:crop_coords[0][1],
+                crop_coords[0][2]:crop_coords[0][3],
+                crop_coords[0][4]:crop_coords[0][5]
+            ] = 0
+            
+            transformed[
+                crop_coords[1][0]:crop_coords[1][1],
+                crop_coords[1][2]:crop_coords[1][3],
+                crop_coords[1][4]:crop_coords[1][5]
+            ] = 0
+
+            transformed[
+                paste_coords[0][0]:paste_coords[0][0]+(crop_coords[0][1]-crop_coords[0][0]),
+                paste_coords[0][1]:paste_coords[0][1]+(crop_coords[0][3]-crop_coords[0][2]),
+                paste_coords[0][2]:paste_coords[0][2]+(crop_coords[0][5]-crop_coords[0][4])
+            ] = patch1
+            
+            transformed[
+                paste_coords[1][0]:paste_coords[1][0]+(crop_coords[1][1]-crop_coords[1][0]),
+                paste_coords[1][1]:paste_coords[1][1]+(crop_coords[1][3]-crop_coords[1][2]),
+                paste_coords[1][2]:paste_coords[1][2]+(crop_coords[1][5]-crop_coords[1][4])
+            ] = patch2
+            
+            return transformed
+
+
+        transforms = {
+            'axial': {  
+                'crop': [
+                    (0, d, h_points[0], h_points[1], w_points[0], w_points[1]),
+                    (0, d, h_points[0], h_points[1], w1, w2)
+                ],
+                'paste': [
+                    (0, h_points[0], w1),
+                    (0, h_points[0], w_points[0])
+                ]
+            },
+            'coronal': {  
+                'crop': [
+                    (0, d, h_points[0], h_points[1], w_points[0], w_points[1]),
+                    (0, d, h_points[0], h_points[1], w1, w2)
+                ],
+                'paste': [
+                    (0, h_points[0], w1),
+                    (0, h_points[0], w_points[0])
+                ]
+            },
+            'sagittal': {  
+                'crop': [
+                    (d_points[0], d_points[1], 0, h, w_points[0], w_points[1]),
+                    (d_points[0], d_points[1], 0, h, w1, w2)
+                ],
+                'paste': [
+                    (d_points[0], 0, w1),
+                    (d_points[0], 0, w_points[0])
+                ]
+            },
+            'diagonal': {  
+                'crop': [
+                    (d_diag_points[0], d_diag_points[1], 
+                     d_diag_points[0], d_diag_points[1] + u,
+                     d_diag_points[1], d_diag_points[1] + u),
+                    (d1, d_diag_points[0], 
+                     d2, d_diag_points[0] + u,
+                     d_diag_points[1], d_diag_points[1] + u)
+                ],
+                'paste': [
+                    (d1, d_diag_points[0], d_diag_points[1]),
+                    (d_diag_points[0], d_diag_points[0] + u, d_diag_points[1] + u)
+                ]
+            }
+        }
+
+
+        transform_keys = list(transforms.keys())
+        random.shuffle(transform_keys)
+
+        chosen_key = transform_keys[0]
+        output = create_transform(
+            x_np,
+            transforms[chosen_key]['crop'],
+            transforms[chosen_key]['paste']
+        )
+
+        output = torch.from_numpy(output).permute(3, 0, 1, 2).to(device=device, dtype=dtype)
+
+        return output
