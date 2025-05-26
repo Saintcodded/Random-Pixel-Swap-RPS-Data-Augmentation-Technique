@@ -1,7 +1,14 @@
-# In a torchvision pipeline
+# In a torchvision transform pipeline
+#2D implementation
 transform = transforms.Compose([
     transforms.ToTensor(),
-    #RPS(sf=(0.1, 1.0), p = 1 ),  #  Multi-Value Swap Area Factor (MVSF)
-    RPS(sf=1.0, p=1), #Single-Value Swap Area Factor (SVSF)
-    transforms.Resize((224, 224))
+    #RPS2D(sf=(0.1, 1.0), p = 1 ),  #  Multi-Value Swap Area Factor (MVSF)
+    RPS2D(sf=1.0, p=1), #Single-Value Swap Area Factor (SVSF)
+])
+
+# 3D implementation
+transform = transforms.Compose([
+    transforms.Lambda(lambda x: torch.from_numpy(x).permute(3, 0, 1, 2)),  # (C, D, H, W)
+    #RPS3D(sf=(0.1, 1.0), p = 1.0 ),
+    RPS3D(sf=1.0, p=1),
 ])
