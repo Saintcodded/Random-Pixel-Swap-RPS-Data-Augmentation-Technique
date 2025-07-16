@@ -9,6 +9,6 @@ transform = transforms.Compose([
 # 3D implementation
 transform = transforms.Compose([
     transforms.Lambda(lambda x: torch.from_numpy(x).permute(3, 0, 1, 2)),  # (C, D, H, W)
-    #RPS3D(sf=(0.1, 1.0), p = 1.0 ),
-    RPS3D(sf=1.0, p=1),
+    #RPS3D(sf=(0.1, 1.0), p = 1.0 ),  #  Multi-Value Swap Area Factor (MVSF)
+    RPS3D(sf=1.0, p=1), #Single-Value Swap Area Factor (SVSF)
 ])
